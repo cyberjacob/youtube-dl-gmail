@@ -1,5 +1,23 @@
 #!/usr/bin/env python
 
+"""Gmail intigration for youtube-dl
+
+youtube-dl-gmail is a script designed to be run as a cronjob that automatically fetches "<user> just uploaded a video" messages from a specific label in Gmail and queues them for download.
+To reduce bandwidth, usage, only one video is downloaded each time the script is run.
+Emails are automatically moved to the trash folder once they have been scanned and queued for downloading.
+Status is displayed in the process title, visible through `ps -Af | grep gmail` or `cat /proc/pid/cmdline`
+Currently, the script is only capable of retreiving videos from YouTube.
+"""
+
+__author__ = "Jacob Mansfield"
+__copyright__ = "Copyright 2015, Jacob Mansfield"
+__credits__ = ["Jacob Mansfield"]
+__license__ = "MIT"
+__version__ = "1.0.0"
+__maintainer__ = "Jacob Mansfield"
+__email__ = "cyberjacob@gmail.com"
+__status__ = "Development"
+
 from __future__ import unicode_literals
 from apiclient import discovery
 from oauth2client import client
@@ -13,13 +31,16 @@ import re
 import setproctitle
 import youtube_dl
 
+
+# retreive arguments, mainly for use with the oauth intigration
 try:
     import argparse
     flags = argparse.ArgumentParser(parents=[tools.argparser]).parse_args()
 except ImportError:
     flags = None
 
-LABEL_NAME = "YouTube/Approved"
+LABEL_NAME = "YouTube/Approved"        # the Gmail label to retreive emails from
+# This regex is stolen straight from the main YouTube-dl project, namely https://github.com/rg3/youtube-dl/blob/master/youtube_dl/extractor/youtube.py
 VALID_URL = r"""(?x)                                # Free spacing mode
 (                                                   # http(s):// or protocol-independent URL
     (?:https?://|//)
@@ -51,10 +72,10 @@ VALID_URL = r"""(?x)                                # Free spacing mode
 )
 ([0-9A-Za-z_-]{11})                                             # here is it! the YouTube video ID
 """
-SCOPES              = 'https://www.googleapis.com/auth/gmail.modify'
-CLIENT_SECRET_FILE  = 'client_secret.json'
-APPLICATION_NAME    = 'Gmail to YouTube-DL gateway'
-QUEUE_FILE          = 'downloads'
+SCOPES              = 'https://www.googleapis.com/auth/gmail.modify'    # The authorization level we need to access emails. The modify permission is needed to move the emails to the trash once they're scanned
+CLIENT_SECRET_FILE  = 'client_secret.json'                              # This is where the user's API keys are stored
+APPLICATION_NAME    = 'Gmail to YouTube-DL gateway'                     # Displayed in the authorization prompt on Googe's website
+QUEUE_FILE          = 'downloads'                                       # Where the queued video IDs are downloaded
 
 def get_credentials():
     """Gets valid user credentials from storage.
@@ -85,20 +106,24 @@ def get_credentials():
     return credentials
 
 def remove_duplicates(items):
+    """Remove duplicate items from a list, sacrificing the order of the list"""
     return list(set(items))
 
 def fetch_queue():
+    """Fetch a list of video IDs from the download queue"""
     setproctitle.setproctitle('runGmail: Retreiving existing queue')
     with open(QUEUE_FILE) as f:
         content = [x.strip('\n') for x in f.readlines()]
     return content
 
 def save_queue(items):
+    """Save a list of video IDs to the download queue"""
     with open(QUEUE_FILE, 'w') as f:
         for item in items:
             f.write("%s\n" % item)
 
 def fetch_gmail():
+    """Fetch messages from Gmail, and scan them for YouTube video IDs"""
     setproctitle.setproctitle('runGmail: Logging into Gmail')
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
@@ -137,21 +162,27 @@ def fetch_gmail():
 
 
 def main():
+    # Get the video IDs from the download queue and the Gmail label
     YouTubeIDs = remove_duplicates(fetch_queue() + fetch_gmail())
 
+    # Search each video ID to check if it's already been downloaded
     for id in YouTubeIDs:
         for file_listing in [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser("~")) for f in fn]:
             if fnmatch.fnmatch(file_listing, '*'+id+'*'):
                 print "Match for "+id+" found: "+file_listing
                 YouTubeIDs.remove(id)
 
+    # pop a video ID from the top fo the stack
     toDownload = YouTubeIDs.pop()
     try:
+        # Try to download it
         youtube_dl.YoutubeDL({}).download([toDownload])
     except youtube_dl.utils.DownloadError as e:
+        # Catch any errors and re-add it to the stack
         print "Download error occured: "+e.message
         YouTubeIDs + [id]
-
+            
+    # Save the undownloaded IDs back to the queue
     save_queue(YouTubeIDs)
 
 if __name__ == "__main__":
