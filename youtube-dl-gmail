@@ -1,0 +1,158 @@
+#!/usr/bin/env python
+
+from __future__ import unicode_literals
+from apiclient import discovery
+from oauth2client import client
+from oauth2client import tools
+import base64
+import fnmatch
+import httplib2
+import oauth2client
+import os
+import re
+import setproctitle
+import youtube_dl
+
+try:
+    import argparse
+    flags = argparse.ArgumentParser(parents=[tools.argparser]).parse_args()
+except ImportError:
+    flags = None
+
+LABEL_NAME = "YouTube/Approved"
+VALID_URL = r"""(?x)                                # Free spacing mode
+(                                                   # http(s):// or protocol-independent URL
+    (?:https?://|//)
+    (?:
+        (?:
+            (?:
+                (?:\w+\.)?[yY][oO][uU][tT][uU][bB][eE](?:-nocookie)?\.com/|
+                (?:www\.)?deturl\.com/www\.youtube\.com/|
+                (?:www\.)?pwnyoutube\.com/|
+                (?:www\.)?yourepeat\.com/|
+                tube\.majestyc\.net/|
+                youtube\.googleapis\.com/           # the various hostnames, with wildcard subdomains
+            )
+            (?:.*?\#/)?                             # handle anchor (#/) redirect urls
+            (?:                                     # the various things that can precede the ID:
+                (?:(?:v|embed|e)/(?!videoseries))|  # v/ or embed/ or e/
+                (?:
+                    (?:(?:watch|movie)(?:_popup)?(?:\.php)?/?)? # preceding watch(_popup|.php) or nothing (like /?v=xxxx)
+                    (?:\?|\#!?)                                 # the params delimiter ? or # or #!
+                    (?:.*?&)?                                   # any other preceding param (like /?s=tuff&v=xxxx)
+                    v=
+                )
+            )
+        )|
+        (?:https?://|//)youtu\.be/|                             # just youtu.be/xxxx
+        (?:www\.)?
+        cleanvideosearch\.com/media/action/yt/watch\?videoId=
+    )
+)
+([0-9A-Za-z_-]{11})                                             # here is it! the YouTube video ID
+"""
+SCOPES              = 'https://www.googleapis.com/auth/gmail.modify'
+CLIENT_SECRET_FILE  = 'client_secret.json'
+APPLICATION_NAME    = 'Gmail to YouTube-DL gateway'
+QUEUE_FILE          = 'downloads'
+
+def get_credentials():
+    """Gets valid user credentials from storage.
+
+    If nothing has been stored, or if the stored credentials are invalid,
+    the OAuth2 flow is completed to obtain the new credentials.
+
+    Returns:
+        Credentials, the obtained credential.
+    """
+    home_dir = os.path.expanduser('~')
+    credential_dir = os.path.join(home_dir, '.credentials')
+    if not os.path.exists(credential_dir):
+        os.makedirs(credential_dir)
+    credential_path = os.path.join(credential_dir,
+                                   'gmail-quickstart.json')
+
+    store = oauth2client.file.Storage(credential_path)
+    credentials = store.get()
+    if not credentials or credentials.invalid:
+        flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE, SCOPES)
+        flow.user_agent = APPLICATION_NAME
+        if flags:
+            credentials = tools.run_flow(flow, store, flags)
+        else: # Needed only for compatability with Python 2.6
+            credentials = tools.run(flow, store)
+        print 'Storing credentials to ' + credential_path
+    return credentials
+
+def remove_duplicates(items):
+    return list(set(items))
+
+def fetch_queue():
+    setproctitle.setproctitle('runGmail: Retreiving existing queue')
+    with open(QUEUE_FILE) as f:
+        content = [x.strip('\n') for x in f.readlines()]
+    return content
+
+def save_queue(items):
+    with open(QUEUE_FILE, 'w') as f:
+        for item in items:
+            f.write("%s\n" % item)
+
+def fetch_gmail():
+    setproctitle.setproctitle('runGmail: Logging into Gmail')
+    credentials = get_credentials()
+    http = credentials.authorize(httplib2.Http())
+    service = discovery.build('gmail', 'v1', http=http)
+
+    setproctitle.setproctitle('runGmail: Fetching list of labels')
+    labels = service.users().labels().list(userId='me').execute().get('labels', [])
+
+    setproctitle.setproctitle('runGmail: Finding label from list')
+    for label in labels:
+        if label['name'] == LABEL_NAME:
+            label_id = label['id']
+
+    setproctitle.setproctitle('runGmail: Downloading messages')
+    messageList = service.users().messages().list(userId='me',labelIds=label_id).execute()
+
+    match_tuples = []
+    matches = []
+
+    if 'messages' in messageList:
+        for message_id_dict in messageList['messages']:
+            message_error = False
+            message = service.users().messages().get(userId='me',id=message_id_dict['id']).execute()
+            setproctitle.setproctitle('runGmail: scanning message: '+message['snippet'].encode('ascii', 'ignore'))
+            for part in message['payload']['parts']:
+                text = base64.urlsafe_b64decode(str(part['body']['data']))
+                match_tuples += re.findall(VALID_URL, text)
+            service.users().messages().trash(userId='me',id=message_id_dict['id']).execute()
+
+    setproctitle.setproctitle('runGmail: removing duplicate results')
+
+    for match in match_tuples:
+        matches += [match[1]]
+
+    return remove_duplicates(matches)
+
+
+def main():
+    YouTubeIDs = remove_duplicates(fetch_queue() + fetch_gmail())
+
+    for id in YouTubeIDs:
+        for file_listing in [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser("~")) for f in fn]:
+            if fnmatch.fnmatch(file_listing, '*'+id+'*'):
+                print "Match for "+id+" found: "+file_listing
+                YouTubeIDs.remove(id)
+
+    toDownload = YouTubeIDs.pop()
+    try:
+        youtube_dl.YoutubeDL({}).download([toDownload])
+    except youtube_dl.utils.DownloadError as e:
+        print "Download error occured: "+e.message
+        YouTubeIDs + [id]
+
+    save_queue(YouTubeIDs)
+
+if __name__ == "__main__":
+    main()
