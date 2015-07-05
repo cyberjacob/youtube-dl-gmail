@@ -174,13 +174,19 @@ def main():
 
     # pop a video ID from the top fo the stack
     toDownload = YouTubeIDs.pop()
-    try:
-        # Try to download it
-        youtube_dl.YoutubeDL({}).download([toDownload])
-    except youtube_dl.utils.DownloadError as e:
-        # Catch any errors and re-add it to the stack
-        print "Download error occured: "+e.message
-        YouTubeIDs + [id]
+
+    # Try the download 10 times
+    for i in range(1,10):
+        try:
+            # Try to download it
+            youtube_dl.YoutubeDL({}).download([toDownload])
+        except youtube_dl.utils.DownloadError as e:
+            # Catch any errors and re-add it to the stack
+            print "Download error occured: "+e.message
+            if i == 10:
+                print "Abandoning download of "+id+" due to multiple errors."
+        # If the download suceeds, jump out of the loop
+        continue
             
     # Save the undownloaded IDs back to the queue
     save_queue(YouTubeIDs)
