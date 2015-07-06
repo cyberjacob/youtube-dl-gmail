@@ -111,7 +111,7 @@ def remove_duplicates(items):
 
 def fetch_queue():
     """Fetch a list of video IDs from the download queue"""
-    setproctitle.setproctitle('runGmail: Retrieving existing queue')
+    setproctitle.setproctitle('youtube-dl-gmail: Retrieving existing queue')
     with open(QUEUE_FILE) as f:
         content = [x.strip('\n') for x in f.readlines()]
     return content
@@ -124,20 +124,20 @@ def save_queue(items):
 
 def fetch_gmail():
     """Fetch messages from Gmail, and scan them for YouTube video IDs"""
-    setproctitle.setproctitle('runGmail: Logging into Gmail')
+    setproctitle.setproctitle('youtube-dl-gmail: Logging into Gmail')
     credentials = get_credentials()
     http = credentials.authorize(httplib2.Http())
     service = discovery.build('gmail', 'v1', http=http)
 
-    setproctitle.setproctitle('runGmail: Fetching list of labels')
+    setproctitle.setproctitle('youtube-dl-gmail: Fetching list of labels')
     labels = service.users().labels().list(userId='me').execute().get('labels', [])
 
-    setproctitle.setproctitle('runGmail: Finding label from list')
+    setproctitle.setproctitle('youtube-dl-gmail: Finding label from list')
     for label in labels:
         if label['name'] == LABEL_NAME:
             label_id = label['id']
 
-    setproctitle.setproctitle('runGmail: Downloading messages')
+    setproctitle.setproctitle('youtube-dl-gmail: Downloading messages')
     messageList = service.users().messages().list(userId='me',labelIds=label_id).execute()
 
     match_tuples = []
@@ -147,13 +147,13 @@ def fetch_gmail():
         for message_id_dict in messageList['messages']:
             message_error = False
             message = service.users().messages().get(userId='me',id=message_id_dict['id']).execute()
-            setproctitle.setproctitle('runGmail: scanning message: '+message['snippet'].encode('ascii', 'ignore'))
+            setproctitle.setproctitle('youtube-dl-gmail: scanning message: '+message['snippet'].encode('ascii', 'ignore'))
             for part in message['payload']['parts']:
                 text = base64.urlsafe_b64decode(str(part['body']['data']))
                 match_tuples += re.findall(VALID_URL, text)
             service.users().messages().trash(userId='me',id=message_id_dict['id']).execute()
 
-    setproctitle.setproctitle('runGmail: removing duplicate results')
+    setproctitle.setproctitle('youtube-dl-gmail: removing duplicate results')
 
     for match in match_tuples:
         matches += [match[1]]
@@ -167,8 +167,10 @@ def main():
         gmailIDs = fetch_gmail()
     except httplib2.ServerNotFoundError:
         print "Unable to fetch messages from Gmail: DNS error"
+    setproctitle.setproctitle('youtube-dl-gmail: Removing duplicates')
     YouTubeIDs = remove_duplicates(fetch_queue() + gmailIDs)
 
+    setproctitle.setproctitle('youtube-dl-gmail: Searching for already-downloaded videos')
     # Search each video ID to check if it's already been downloaded
     for id in YouTubeIDs:
         for file_listing in [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser("~")) for f in fn]:
@@ -183,6 +185,7 @@ def main():
 
         # Try the download 10 times
         for i in range(1,10):
+            setproctitle.setproctitle('youtube-dl-gmail: Downloading video '+toDownload+' Attempt '+i)
             try:
                 # Try to download it
                 youtube_dl.YoutubeDL({}).download([toDownload])
@@ -193,7 +196,8 @@ def main():
                 print "Download error occurred: "+e.message
                 if i == 10:
                     print "Abandoning download of "+id+" due to multiple errors."
-            
+
+    setproctitle.setproctitle('youtube-dl-gmail: Saving queue')
     # Save the undownloaded IDs back to the queue
     save_queue(YouTubeIDs)
 
