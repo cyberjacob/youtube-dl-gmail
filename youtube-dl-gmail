@@ -185,7 +185,7 @@ def main():
 
         # Try the download 10 times
         for i in range(1,10):
-            setproctitle.setproctitle('youtube-dl-gmail: Downloading video '+toDownload+' Attempt '+i)
+            setproctitle.setproctitle('youtube-dl-gmail: Downloading video '+toDownload+' Attempt '+str(i))
             try:
                 # Try to download it
                 youtube_dl.YoutubeDL({}).download([toDownload])
