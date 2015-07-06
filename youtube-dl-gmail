@@ -176,21 +176,23 @@ def main():
                 print "Match for "+id+" found: "+file_listing
                 YouTubeIDs.remove(id)
 
-    # pop a video ID from the top of the stack
-    toDownload = YouTubeIDs.pop()
+    #Download 10 videos each run
+    for j in range(1,10):
+        # pop a video ID from the top of the stack
+        toDownload = YouTubeIDs.pop()
 
-    # Try the download 10 times
-    for i in range(1,10):
-        try:
-            # Try to download it
-            youtube_dl.YoutubeDL({}).download([toDownload])
-            # If the download succeeds, jump out of the loop
-            break
-        except youtube_dl.utils.DownloadError as e:
-            # Catch any errors and re-add it to the stack
-            print "Download error occurred: "+e.message
-            if i == 10:
-                print "Abandoning download of "+id+" due to multiple errors."
+        # Try the download 10 times
+        for i in range(1,10):
+            try:
+                # Try to download it
+                youtube_dl.YoutubeDL({}).download([toDownload])
+                # If the download succeeds, jump out of the loop
+                break
+            except youtube_dl.utils.DownloadError as e:
+                # Catch any errors and re-add it to the stack
+                print "Download error occurred: "+e.message
+                if i == 10:
+                    print "Abandoning download of "+id+" due to multiple errors."
             
     # Save the undownloaded IDs back to the queue
     save_queue(YouTubeIDs)
