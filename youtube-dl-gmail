@@ -165,7 +165,7 @@ def main():
     # Get the video IDs from the download queue and the Gmail label
     try:
         gmailIDs = fetch_gmail()
-    except httplib2.ServerNotFoundError
+    except httplib2.ServerNotFoundError:
         print "Unable to fetch messages from Gmail: DNS error"
     YouTubeIDs = remove_duplicates(fetch_queue() + gmailIDs)
 
