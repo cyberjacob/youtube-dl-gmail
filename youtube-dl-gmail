@@ -47,49 +47,11 @@ except ImportError:
 
 # the Gmail label to retreive emails from
 LABEL_NAME = "YouTube/Approved"
+
 # This regex is stolen straight from the main YouTube-dl project, namely
 # https://github.com/rg3/youtube-dl/blob/master/youtube_dl/extractor/youtube.py
-VALID_URL = r"""(?x)                                                   # Free spacing mode
-(
-    # http(s):// or protocol-independent URL
-    (?:https?://|//)
-    (?:
-        (?:
-            (?:
-                # the various hostnames, with wildcard subdomains:
-                (?:\w+\.)?[yY][oO][uU][tT][uU][bB][eE](?:-nocookie)?\.com/|
-                (?:www\.)?deturl\.com/www\.youtube\.com/|
-                (?:www\.)?pwnyoutube\.com/|
-                (?:www\.)?yourepeat\.com/|
-                tube\.majestyc\.net/|
-                youtube\.googleapis\.com/
-            )
-            # handle anchor (#/) redirect urls
-            (?:.*?\#/)?
-            # the various things that can precede the ID:
-            (?:
-                # v/ or embed/ or e/
-                (?:(?:v|embed|e)/(?!videoseries))|
-                (?:
-                    # preceding watch(_popup|.php) or nothing (like /?v=xxxx)
-                    (?:(?:watch|movie)(?:_popup)?(?:\.php)?/?)?
-                    # the params delimiter ? or # or #!
-                    (?:\?|\#!?)
-                    # any other preceding param (like /?s=tuff&v=xxxx)
-                    (?:.*?&)?
-                    v=
-                )
-            )
-        )|
-        # just youtu.be/xxxx
-        (?:https?://|//)youtu\.be/|
-        (?:www\.)?
-        cleanvideosearch\.com/media/action/yt/watch\?videoId=
-    )
-)
-# here is it! the YouTube video ID
-([0-9A-Za-z_-]{11})
-"""
+VALID_URL = youtube_dl.extractor.youtube.YoutubeIE()._VALID_URL
+
 # The authorization level we need to access emails. The modify permission is
 # needed to move the emails to the trash once they're scanned
 SCOPES = 'https://www.googleapis.com/auth/gmail.modify'
