@@ -1,24 +1,22 @@
 #!/usr/bin/env python
-
 """Gmail intigration for youtube-dl
 
-youtube-dl-gmail is a script designed to be run as a cronjob that automatically fetches "<user> just uploaded a video" messages from a specific label in Gmail and queues them for download.
-To reduce bandwidth, usage, only one video is downloaded each time the script is run.
-Emails are automatically moved to the trash folder once they have been scanned and queued for downloading.
-Status is displayed in the process title, visible through `ps -Af | grep gmail` or `cat /proc/pid/cmdline`
+youtube-dl-gmail is a script designed to be run as a cronjob that automatically
+fetches "<user> just uploaded a video" messages from a specific label in Gmail
+and queues them for download.
+
+To reduce bandwidth, usage, only 10 videos are downloaded each time the script
+is run.
+
+Emails are automatically moved to the trash folder once they have been scanned
+and queued for downloading.
+
+Status is displayed in the process title, visible through `ps -Af | grep gmail`
+or `cat /proc/pid/cmdline`
 Currently, the script is only capable of retrieving videos from YouTube.
 """
 
-__author__ = "Jacob Mansfield"
-__copyright__ = "Copyright 2015, Jacob Mansfield"
-__credits__ = ["Jacob Mansfield"]
-__license__ = "MIT"
-__version__ = "1.0.0"
-__maintainer__ = "Jacob Mansfield"
-__email__ = "cyberjacob@gmail.com"
-__status__ = "Development"
-
-#from __future__ import unicode_literals
+from __future__ import unicode_literals
 from apiclient import discovery
 from oauth2client import client
 from oauth2client import tools
@@ -31,6 +29,14 @@ import re
 import setproctitle
 import youtube_dl
 
+__author__ = "Jacob Mansfield"
+__copyright__ = "Copyright 2015, Jacob Mansfield"
+__credits__ = ["Jacob Mansfield"]
+__license__ = "MIT"
+__version__ = "1.0.0"
+__maintainer__ = "Jacob Mansfield"
+__email__ = "cyberjacob@gmail.com"
+__status__ = "Development"
 
 # retrieve arguments, mainly for use with the oauth integration
 try:
@@ -39,43 +45,64 @@ try:
 except ImportError:
     flags = None
 
-LABEL_NAME = "YouTube/Approved"        # the Gmail label to retreive emails from
-# This regex is stolen straight from the main YouTube-dl project, namely https://github.com/rg3/youtube-dl/blob/master/youtube_dl/extractor/youtube.py
-VALID_URL = r"""(?x)                                # Free spacing mode
-(                                                   # http(s):// or protocol-independent URL
+# the Gmail label to retreive emails from
+LABEL_NAME = "YouTube/Approved"
+# This regex is stolen straight from the main YouTube-dl project, namely
+# https://github.com/rg3/youtube-dl/blob/master/youtube_dl/extractor/youtube.py
+VALID_URL = r"""(?x)                                                   # Free spacing mode
+(
+    # http(s):// or protocol-independent URL
     (?:https?://|//)
     (?:
         (?:
             (?:
+                # the various hostnames, with wildcard subdomains:
                 (?:\w+\.)?[yY][oO][uU][tT][uU][bB][eE](?:-nocookie)?\.com/|
                 (?:www\.)?deturl\.com/www\.youtube\.com/|
                 (?:www\.)?pwnyoutube\.com/|
                 (?:www\.)?yourepeat\.com/|
                 tube\.majestyc\.net/|
-                youtube\.googleapis\.com/           # the various hostnames, with wildcard subdomains
+                youtube\.googleapis\.com/
             )
-            (?:.*?\#/)?                             # handle anchor (#/) redirect urls
-            (?:                                     # the various things that can precede the ID:
-                (?:(?:v|embed|e)/(?!videoseries))|  # v/ or embed/ or e/
+            # handle anchor (#/) redirect urls
+            (?:.*?\#/)?
+            # the various things that can precede the ID:
+            (?:
+                # v/ or embed/ or e/
+                (?:(?:v|embed|e)/(?!videoseries))|
                 (?:
-                    (?:(?:watch|movie)(?:_popup)?(?:\.php)?/?)? # preceding watch(_popup|.php) or nothing (like /?v=xxxx)
-                    (?:\?|\#!?)                                 # the params delimiter ? or # or #!
-                    (?:.*?&)?                                   # any other preceding param (like /?s=tuff&v=xxxx)
+                    # preceding watch(_popup|.php) or nothing (like /?v=xxxx)
+                    (?:(?:watch|movie)(?:_popup)?(?:\.php)?/?)?
+                    # the params delimiter ? or # or #!
+                    (?:\?|\#!?)
+                    # any other preceding param (like /?s=tuff&v=xxxx)
+                    (?:.*?&)?
                     v=
                 )
             )
         )|
-        (?:https?://|//)youtu\.be/|                             # just youtu.be/xxxx
+        # just youtu.be/xxxx
+        (?:https?://|//)youtu\.be/|
         (?:www\.)?
         cleanvideosearch\.com/media/action/yt/watch\?videoId=
     )
 )
-([0-9A-Za-z_-]{11})                                             # here is it! the YouTube video ID
+# here is it! the YouTube video ID
+([0-9A-Za-z_-]{11})
 """
-SCOPES              = 'https://www.googleapis.com/auth/gmail.modify'    # The authorization level we need to access emails. The modify permission is needed to move the emails to the trash once they're scanned
-CLIENT_SECRET_FILE  = 'client_secret.json'                              # This is where the user's API keys are stored
-APPLICATION_NAME    = 'Gmail to YouTube-DL gateway'                     # Displayed in the authorization prompt on Googe's website
-QUEUE_FILE          = 'downloads'                                       # Where the queued video IDs are downloaded
+# The authorization level we need to access emails. The modify permission is
+# needed to move the emails to the trash once they're scanned
+SCOPES = 'https://www.googleapis.com/auth/gmail.modify'
+
+# This is where the user's API keys are stored
+CLIENT_SECRET_FILE = 'client_secret.json'
+
+# Displayed in the authorization prompt on Googe's website
+APPLICATION_NAME = 'Gmail to YouTube-DL gateway'
+
+# Where the queued video IDs are downloaded
+QUEUE_FILE = 'downloads'
+
 
 def get_credentials():
     """Gets valid user credentials from storage.
@@ -100,27 +127,30 @@ def get_credentials():
         flow.user_agent = APPLICATION_NAME
         if flags:
             credentials = tools.run_flow(flow, store, flags)
-        else: # Needed only for compatibility with Python 2.6
+        else:  # Needed only for compatability with Python 2.6
             credentials = tools.run(flow, store)
-        print 'Storing credentials to ' + credential_path
     return credentials
+
 
 def remove_duplicates(items):
     """Remove duplicate items from a list, sacrificing the order of the list"""
     return list(set(items))
 
+
 def fetch_queue():
     """Fetch a list of video IDs from the download queue"""
-    setproctitle.setproctitle('youtube-dl-gmail: Retrieving existing queue')
+    setproctitle.setproctitle('youtube-dl-gmail: Retreiving existing queue')
     with open(QUEUE_FILE) as f:
         content = [x.strip('\n') for x in f.readlines()]
     return content
+
 
 def save_queue(items):
     """Save a list of video IDs to the download queue"""
     with open(QUEUE_FILE, 'w') as f:
         for item in items:
             f.write("%s\n" % item)
+
 
 def fetch_gmail():
     """Fetch messages from Gmail, and scan them for YouTube video IDs"""
@@ -130,7 +160,12 @@ def fetch_gmail():
     service = discovery.build('gmail', 'v1', http=http)
 
     setproctitle.setproctitle('youtube-dl-gmail: Fetching list of labels')
-    labels = service.users().labels().list(userId='me').execute().get('labels', [])
+    labels = service \
+        .users() \
+        .labels() \
+        .list(userId='me') \
+        .execute() \
+        .get('labels', [])
 
     setproctitle.setproctitle('youtube-dl-gmail: Finding label from list')
     for label in labels:
@@ -138,7 +173,11 @@ def fetch_gmail():
             label_id = label['id']
 
     setproctitle.setproctitle('youtube-dl-gmail: Downloading messages')
-    messageList = service.users().messages().list(userId='me',labelIds=label_id).execute()
+    messageList = service \
+        .users() \
+        .messages() \
+        .list(userId='me', labelIds=label_id) \
+        .execute() \
 
     match_tuples = []
     matches = []
@@ -146,12 +185,23 @@ def fetch_gmail():
     if 'messages' in messageList:
         for message_id_dict in messageList['messages']:
             message_error = False
-            message = service.users().messages().get(userId='me',id=message_id_dict['id']).execute()
-            setproctitle.setproctitle('youtube-dl-gmail: scanning message: '+message['snippet'].encode('ascii', 'ignore'))
+            message = service \
+                .users() \
+                .messages() \
+                .get(userId='me', id=message_id_dict['id']) \
+                .execute()
+            setproctitle.setproctitle(
+                'youtube-dl-gmail: scanning message: '+message['snippet']
+                .encode('ascii', 'ignore')
+            )
             for part in message['payload']['parts']:
                 text = base64.urlsafe_b64decode(str(part['body']['data']))
                 match_tuples += re.findall(VALID_URL, text)
-            service.users().messages().trash(userId='me',id=message_id_dict['id']).execute()
+            service \
+                .users() \
+                .messages() \
+                .trash(userId='me', id=message_id_dict['id']) \
+                .execute()
 
     setproctitle.setproctitle('youtube-dl-gmail: removing duplicate results')
 
@@ -162,40 +212,52 @@ def fetch_gmail():
 
 
 def main():
+    print "Starting youtube-dl-gmail"
     # Get the video IDs from the download queue and the Gmail label
     try:
         gmailIDs = fetch_gmail()
     except httplib2.ServerNotFoundError:
         print "Unable to fetch messages from Gmail: DNS error"
+
     setproctitle.setproctitle('youtube-dl-gmail: Removing duplicates')
     YouTubeIDs = remove_duplicates(fetch_queue() + gmailIDs)
 
-    setproctitle.setproctitle('youtube-dl-gmail: Searching for already-downloaded videos')
+    setproctitle.setproctitle(
+        'youtube-dl-gmail: Searching for already-downloaded videos'
+    )
     # Search each video ID to check if it's already been downloaded
     for id in YouTubeIDs:
-        for file_listing in [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser("~")) for f in fn]:
+        for file_listing in [
+            os.path.join(dp, f) for dp, dn, fn in
+                os.walk(os.path.expanduser("~")) for f in
+                fn]:
             if fnmatch.fnmatch(file_listing, '*'+id+'*'):
-                print "Match for "+id+" found: "+file_listing
                 YouTubeIDs.remove(id)
 
-    #Download 10 videos each run
-    for j in range(1,10):
-        # pop a video ID from the top of the stack
-        toDownload = YouTubeIDs.pop()
+    if YouTubeIDs:
+        # Download 10 videos each run
+        for j in range(9):
+            # pop a video ID from the top of the stack
+            toDownload = YouTubeIDs.pop()
+            # Try the download 10 times
+            for i in range(9):
+                setproctitle.setproctitle(
+                    'youtube-dl-gmail: Downloading video ' +
+                    toDownload + ' Attempt ' + i
+                )
+                try:
+                    # Try to download it
+                    youtube_dl.YoutubeDL({}).download([toDownload])
 
-        # Try the download 10 times
-        for i in range(1,10):
-            setproctitle.setproctitle('youtube-dl-gmail: Downloading video '+toDownload+' Attempt '+i)
-            try:
-                # Try to download it
-                youtube_dl.YoutubeDL({}).download([toDownload])
-                # If the download succeeds, jump out of the loop
-                break
-            except youtube_dl.utils.DownloadError as e:
-                # Catch any errors and re-add it to the stack
-                print "Download error occurred: "+e.message
+                    # If the download succeeds, jump out of the loop
+                    break
+                except youtube_dl.utils.DownloadError as e:
+                    # Catch any errors and re-add it to the stack
+                    print "Download error occurred: "+e.message
+                    YouTubeIDs + [id]
                 if i == 10:
-                    print "Abandoning download of "+id+" due to multiple errors."
+                    print "Abandoning download of " +
+                    id + " due to multiple errors."
 
     setproctitle.setproctitle('youtube-dl-gmail: Saving queue')
     # Save the undownloaded IDs back to the queue
