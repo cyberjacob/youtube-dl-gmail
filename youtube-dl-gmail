@@ -218,6 +218,7 @@ def main():
         gmailIDs = fetch_gmail()
     except httplib2.ServerNotFoundError:
         print "Unable to fetch messages from Gmail: DNS error"
+        gmailIDs = []
 
     setproctitle.setproctitle('youtube-dl-gmail: Removing duplicates')
     YouTubeIDs = remove_duplicates(fetch_queue() + gmailIDs)
